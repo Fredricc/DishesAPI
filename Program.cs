@@ -1,5 +1,11 @@
+using AutoMapper;
 using DishesAPI.DbContexts;
+using DishesAPI.Models;
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,31 +27,51 @@ app.UseHttpsRedirection();
 
 
 
-app.MapGet("/dishes", async (DishesDbContext dishesDbContext) =>
+app.MapGet("/dishes", async Task <Ok<IEnumerable<DishDto>>> (DishesDbContext dishesDbContext, 
+    ClaimsPrincipal claimsPrincipal,
+    IMapper mapper,
+    string? name) =>
 {
-    return await dishesDbContext.Dishes.ToListAsync();
+    Console.WriteLine( $"User authenticated?{claimsPrincipal.Identity?.IsAuthenticated}");
+
+    return TypedResults.Ok(mapper.Map <IEnumerable<DishDto>>(await dishesDbContext.Dishes
+        .Where(d => name == null || d.Name.Contains(name))
+        .ToListAsync()));
 });
 
-app.MapGet("/dishes/{dishId:guid}", async (DishesDbContext dishesDbContext,
+app.MapGet("/dishes/{dishId:guid}", async Task<Results<NotFound, Ok<DishDto>>>(DishesDbContext dishesDbContext, IMapper mapper,
     Guid dishId) =>
 {
-    return await dishesDbContext.Dishes
+    var dishEntity = await dishesDbContext.Dishes
         .FirstOrDefaultAsync(d => d.Id ==dishId);
+    if (dishEntity == null)
+    {
+        return TypedResults.NotFound();
+    }
+
+    return TypedResults.Ok(mapper.Map<DishDto>(dishEntity));
 });
 
-app.MapGet("/dishes/{dishName}", async (DishesDbContext dishesDbContext,
+app.MapGet("/dishes/{dishName}", async Task<Ok<DishDto>>(DishesDbContext dishesDbContext, IMapper mapper,
     string dishName) =>
 {
-    return await dishesDbContext.Dishes
-        .FirstOrDefaultAsync(d => d.Name == dishName);
+    return TypedResults.Ok(mapper.Map<DishDto>(await dishesDbContext.Dishes
+        .FirstOrDefaultAsync(d => d.Name == dishName)));
 });
 
-app.MapGet("/dishes/{dishId}/ingredients", async (DishesDbContext dishesDbContext,
+app.MapGet("/dishes/{dishId}/ingredients", async Task<Results<NotFound, Ok<IEnumerable<IngredientDto>>>> (DishesDbContext dishesDbContext, 
+    IMapper mapper,
     Guid dishId) =>
 {
-    return (await dishesDbContext.Dishes
-    .Include(d => d.Ingredients)
-        .FirstOrDefaultAsync(d => d.Id == dishId))?.Ingredients;
+    var dishEntity = await dishesDbContext.Dishes
+        .FirstOrDefaultAsync(d => d.Id == dishId);
+        if (dishEntity == null)
+    {
+        return TypedResults.NotFound();
+    }
+    return TypedResults.Ok(mapper.Map<IEnumerable<IngredientDto>>((await dishesDbContext.Dishes
+        .Include(d => d.Ingredients)
+     .FirstOrDefaultAsync(d => d.Id == dishId))?.Ingredients));
 });
 
 //recreate $ migrate the database on each run, for demo purposes
